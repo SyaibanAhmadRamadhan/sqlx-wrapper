@@ -19,5 +19,6 @@ require (
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	go.opentelemetry.io/otel/metric v1.29.0 // indirect
+	go.uber.org/mock v0.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
