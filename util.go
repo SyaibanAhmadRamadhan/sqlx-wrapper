@@ -26,12 +26,11 @@ const InstrumentVersion = "v1.0.0"
 const sqlOperationUnknown = "UNKNOWN"
 
 const (
-	DBQueryTextKey     = attribute.Key("db.query.text")
-	DBOperationNameKey = attribute.Key("db.operation.name")
-	DBArgs             = attribute.Key("db.args")
-	DBSystem           = attribute.Key("db.system")
-	DBTxIsolationLevel = attribute.Key("db.tx.isolation")
-	DBTxReadOnly       = attribute.Key("db.tx.readonly")
+	DBQueryTextKey     = attribute.Key("db.pg.query.text")
+	DBOperationNameKey = attribute.Key("db.pg.operation_name")
+	DBArgs             = attribute.Key("db.pg.args")
+	DBTxIsolationLevel = attribute.Key("db.pg.tx.isolation")
+	DBTxReadOnly       = attribute.Key("db.pg.tx.readonly")
 )
 
 func recordError(span trace.Span, err error) {

@@ -8,15 +8,18 @@ import (
 )
 
 type Rdbms interface {
-	// reader command
+	ReadQuery
+	WriterCommand
+}
 
+type WriterCommand interface {
+	ExecSq(ctx context.Context, query squirrel.Sqlizer) (sql.Result, error)
+}
+
+type ReadQuery interface {
 	QuerySq(ctx context.Context, query squirrel.Sqlizer, callback callbackRows) error
 	QuerySqPagination(ctx context.Context, countQuery, query squirrel.SelectBuilder, pagination PaginationInput, callback callbackRows) (PaginationOutput, error)
 	QueryRowSq(ctx context.Context, query squirrel.Sqlizer, scanType QueryRowScanType, dest interface{}) error
-
-	// writer command
-
-	ExecSq(ctx context.Context, query squirrel.Sqlizer) (sql.Result, error)
 }
 
 type queryExecutor interface {

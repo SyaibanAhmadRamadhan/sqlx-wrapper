@@ -1,12 +1,9 @@
 package wsqlx
 
 import (
-	"errors"
 	"fmt"
 	"runtime"
 )
-
-var ErrRecordNoRows = errors.New("record not found")
 
 func errTracer(err error) error {
 	pc := make([]uintptr, 15)

@@ -100,9 +100,7 @@ func (s *rdbms) QueryRowSq(ctx context.Context, query squirrel.Sqlizer, scanType
 		err = res.Scan(dest)
 	}
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			err = errors.Join(err, ErrRecordNoRows)
-		} else {
+		if !errors.Is(err, sql.ErrNoRows) {
 			recordError(spanQueryx, err)
 		}
 

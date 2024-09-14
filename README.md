@@ -12,7 +12,7 @@ v1.yearMonthDate.HourMinute
 - `HourMinute`: Time of release in 24-hour format, combined as HHMM (e.g., 2307 for 11:07 PM).
 
 ## Initial rdbms 
-install sqlx wrapper `go get github.com/SyaibanAhmadRamadhan/sqlx-wrapper@v1.240826.1115`
+install sqlx wrapper `go get github.com/SyaibanAhmadRamadhan/sqlx-wrapper@v1.240914.1108`
 ```Go
 // Initialize the Rdbms wrapper with an existing sqlx.DB instance.
 sqlxWrapper := wsqlx.NewRdbms(&sqlx.DB{})
