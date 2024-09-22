@@ -12,7 +12,7 @@ v1.yearMonthDate.HourMinute
 - `HourMinute`: Time of release in 24-hour format, combined as HHMM (e.g., 2307 for 11:07 PM).
 
 ## Initial rdbms 
-install sqlx wrapper `go get github.com/SyaibanAhmadRamadhan/sqlx-wrapper@v1.240914.1108`
+install sqlx wrapper `go get github.com/SyaibanAhmadRamadhan/sqlx-wrapper@v1.240922.1020`
 ```Go
 // Initialize the Rdbms wrapper with an existing sqlx.DB instance.
 sqlxWrapper := wsqlx.NewRdbms(&sqlx.DB{})
@@ -87,14 +87,14 @@ in `service.go`
 ```Go
 type service struct {
     bankAccountRepository bank_accounts.Repository
-    dbTx                  db.SqlxTransaction
+    dbTx                  db.Tx
 }
 
 var _ Service = (*service)(nil)
 
 type NewServiceOpts struct {
     BankAccountRepository bank_accounts.Repository
-    DBTx                  db.SqlxTransaction
+    DBTx                  db.Tx
 }
 
 func NewService(opts NewServiceOpts) *service {

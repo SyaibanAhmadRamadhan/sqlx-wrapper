@@ -27,3 +27,8 @@ type queryExecutor interface {
 	ExecContext(ctx context.Context, query string, arg ...interface{}) (sql.Result, error)
 	QueryRowxContext(ctx context.Context, query string, args ...interface{}) *sqlx.Row
 }
+
+type Tx interface {
+	DoTx(ctx context.Context, opt *sql.TxOptions, fn func(tx Rdbms) error) error
+	DoTxContext(ctx context.Context, opt *sql.TxOptions, fn func(ctx context.Context, tx Rdbms) error) error
+}

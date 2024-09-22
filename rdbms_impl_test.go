@@ -2,6 +2,8 @@ package wsqlx_test
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Masterminds/squirrel"
 	wsqlx "github.com/SyaibanAhmadRamadhan/sqlx-wrapper"
@@ -69,6 +71,30 @@ func Test_sqlxWrapper_Queryx(t *testing.T) {
 		var id int
 		err = sqlxx.QueryRowSq(ctx, query, wsqlx.QueryRowScanTypeDefault, &id)
 		require.NoError(t, err)
+
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("should be return with commit db", func(t *testing.T) {
+		mock.ExpectBegin()
+		mock.ExpectCommit()
+
+		err = sqlxx.DoTx(ctx, &sql.TxOptions{}, func(tx wsqlx.Rdbms) (err error) {
+			return nil
+		})
+		require.NoError(t, err)
+
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("should be return with rollback db", func(t *testing.T) {
+		mock.ExpectBegin()
+		mock.ExpectRollback()
+
+		err = sqlxx.DoTx(ctx, &sql.TxOptions{}, func(tx wsqlx.Rdbms) (err error) {
+			return errors.New("rollback")
+		})
+		require.Error(t, err)
 
 		require.NoError(t, mock.ExpectationsWereMet())
 	})

@@ -9,7 +9,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"reflect"
-	"strings"
 )
 
 type callbackRows func(rows *sqlx.Rows) (err error)
@@ -26,11 +25,9 @@ const InstrumentVersion = "v1.0.0"
 const sqlOperationUnknown = "UNKNOWN"
 
 const (
-	DBQueryTextKey     = attribute.Key("db.pg.query.text")
-	DBOperationNameKey = attribute.Key("db.pg.operation_name")
-	DBArgs             = attribute.Key("db.pg.args")
-	DBTxIsolationLevel = attribute.Key("db.pg.tx.isolation")
-	DBTxReadOnly       = attribute.Key("db.pg.tx.readonly")
+	DBQueryParameter   = attribute.Key("db.query.parameter")
+	DBTxIsolationLevel = attribute.Key("db.tx.isolation")
+	DBTxReadOnly       = attribute.Key("db.tx.readonly")
 )
 
 func recordError(span trace.Span, err error) {
@@ -47,13 +44,5 @@ func makeParamAttr(args []any) attribute.KeyValue {
 		ss[i] = fmt.Sprintf("%s: %v", t, args[i])
 	}
 
-	return DBArgs.StringSlice(ss)
-}
-
-func sqlOperationName(stmt string) string {
-	parts := strings.Fields(stmt)
-	if len(parts) == 0 {
-		return sqlOperationUnknown
-	}
-	return strings.ToUpper(parts[0])
+	return DBQueryParameter.StringSlice(ss)
 }

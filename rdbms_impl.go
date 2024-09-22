@@ -5,22 +5,149 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/Masterminds/squirrel"
+	"github.com/jmoiron/sqlx"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
+	"runtime/debug"
+	"strings"
 )
 
-func NewRdbms(db queryExecutor) *rdbms {
-	tp := otel.GetTracerProvider()
-	return &rdbms{
-		db:     db,
-		tracer: tp.Tracer(TracerName, trace.WithInstrumentationVersion(InstrumentVersion)),
+// SpanNameFunc is a function that can be used to generate a span name for a
+// SQL. The function will be called with the SQL statement as a parameter.
+type SpanNameFunc func(stmt string) string
+type optionFunc func(*rdbms)
+
+func WithAttributes(attrs ...attribute.KeyValue) optionFunc {
+	return func(cfg *rdbms) {
+		cfg.attrs = append(cfg.attrs, attrs...)
 	}
 }
 
+// WithSpanNameFunc will use the provided function to generate the span name for
+// a SQL statement. The function will be called with the SQL statement as a
+// parameter.
+//
+// By default, the whole SQL statement is used as a span name, where applicable.
+func WithSpanNameFunc(fn SpanNameFunc) optionFunc {
+	return func(cfg *rdbms) {
+		cfg.spanNameFunc = fn
+	}
+}
+
+func WithOutIncludeQueryParameters() optionFunc {
+	return func(cfg *rdbms) {
+		cfg.includeParams = false
+	}
+}
+
+func WithConfig(port int, host, user string) optionFunc {
+	return func(cfg *rdbms) {
+		cfg.rdbmsConfig = &rdbmsConfig{
+			host: host,
+			port: port,
+			user: user,
+		}
+	}
+}
+
+func findOwnImportedVersion() string {
+	buildInfo, ok := debug.ReadBuildInfo()
+	if ok {
+		for _, dep := range buildInfo.Deps {
+			if dep.Path == TracerName {
+				return dep.Version
+			}
+		}
+	}
+
+	return "unknown"
+}
+
+func NewRdbms(db *sqlx.DB, opt ...optionFunc) *rdbms {
+	tp := otel.GetTracerProvider()
+	r := &rdbms{
+		db:             db,
+		queryExecutor:  db,
+		tracer:         tp.Tracer(TracerName, trace.WithInstrumentationVersion(findOwnImportedVersion())),
+		tracerProvider: tp,
+		attrs:          nil,
+		spanNameFunc:   nil,
+		includeParams:  true,
+		rdbmsConfig:    nil,
+	}
+
+	for _, o := range opt {
+		o(r)
+	}
+
+	return r
+}
+
 type rdbms struct {
-	db     queryExecutor
-	tracer trace.Tracer
+	db            *sqlx.DB
+	queryExecutor queryExecutor
+
+	tracer         trace.Tracer
+	tracerProvider trace.TracerProvider
+	attrs          []attribute.KeyValue
+	spanNameFunc   SpanNameFunc
+	includeParams  bool
+	rdbmsConfig    *rdbmsConfig
+}
+
+type rdbmsConfig struct {
+	host string
+	port int
+	user string
+}
+
+// sqlOperationName attempts to get the first 'word' from a given SQL query, which usually
+// is the operation name (e.g. 'SELECT').
+func (s *rdbms) sqlOperationName(stmt string) string {
+	// If a custom function is provided, use that. Otherwise, fall back to the
+	// default implementation. This allows users to override the default
+	// behavior without having to reimplement it.
+	if s.spanNameFunc != nil {
+		return s.spanNameFunc(stmt)
+	}
+
+	parts := strings.Fields(stmt)
+	if len(parts) == 0 {
+		// Fall back to a fixed value to prevent creating lots of tracing operations
+		// differing only by the amount of whitespace in them (in case we'd fall back
+		// to the full query or a cut-off version).
+		return sqlOperationUnknown
+	}
+	return strings.ToUpper(parts[0])
+}
+
+// commonAttribute returns a slice of SpanStartOptions that contain
+// attributes from the given connection config and common attribute like query text or query param
+func (s *rdbms) commonAttribute(rawQuery string, args ...interface{}) []trace.SpanStartOption {
+	attrs := []trace.SpanStartOption{
+		trace.WithAttributes(semconv.DBOperationName(s.sqlOperationName(rawQuery))),
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(semconv.DBQueryText(rawQuery)),
+	}
+	if s.rdbmsConfig != nil {
+		attrs = append(attrs, []trace.SpanStartOption{
+			trace.WithAttributes(
+				semconv.ServerAddress(s.rdbmsConfig.host),
+				semconv.ServerPort(s.rdbmsConfig.port),
+			),
+		}...)
+	}
+
+	if s.includeParams {
+		attrs = append(attrs, trace.WithAttributes(makeParamAttr(args)))
+	}
+	if s.attrs != nil {
+		attrs = append(attrs, trace.WithAttributes(s.attrs...))
+	}
+
+	return nil
 }
 
 func (s *rdbms) QuerySq(ctx context.Context, query squirrel.Sqlizer, callback callbackRows) error {
@@ -29,15 +156,10 @@ func (s *rdbms) QuerySq(ctx context.Context, query squirrel.Sqlizer, callback ca
 		return errTracer(err)
 	}
 
-	ctx, spanQueryx := s.tracer.Start(ctx, rawQuery, []trace.SpanStartOption{
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(DBQueryTextKey.String(rawQuery)),
-		trace.WithAttributes(makeParamAttr(args)),
-		trace.WithAttributes(DBOperationNameKey.String(sqlOperationName(rawQuery))),
-	}...)
+	ctx, spanQueryx := s.tracer.Start(ctx, rawQuery, s.commonAttribute(rawQuery, args)...)
 	defer spanQueryx.End()
 
-	res, err := s.db.QueryxContext(ctx, rawQuery, args...)
+	res, err := s.queryExecutor.QueryxContext(ctx, rawQuery, args...)
 	if err != nil {
 		recordError(spanQueryx, err)
 		return err
@@ -60,15 +182,10 @@ func (s *rdbms) ExecSq(ctx context.Context, query squirrel.Sqlizer) (sql.Result,
 		return nil, errTracer(err)
 	}
 
-	ctx, spanExec := s.tracer.Start(ctx, rawQuery, []trace.SpanStartOption{
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(DBQueryTextKey.String(rawQuery)),
-		trace.WithAttributes(makeParamAttr(args)),
-		trace.WithAttributes(DBOperationNameKey.String(sqlOperationName(rawQuery))),
-	}...)
+	ctx, spanExec := s.tracer.Start(ctx, rawQuery, s.commonAttribute(rawQuery, args)...)
 	defer spanExec.End()
 
-	res, err := s.db.ExecContext(ctx, rawQuery, args...)
+	res, err := s.queryExecutor.ExecContext(ctx, rawQuery, args...)
 	if err != nil {
 		recordError(spanExec, err)
 		return nil, err
@@ -83,15 +200,10 @@ func (s *rdbms) QueryRowSq(ctx context.Context, query squirrel.Sqlizer, scanType
 		return errTracer(err)
 	}
 
-	ctx, spanQueryx := s.tracer.Start(ctx, rawQuery, []trace.SpanStartOption{
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(DBQueryTextKey.String(rawQuery)),
-		trace.WithAttributes(makeParamAttr(args)),
-		trace.WithAttributes(DBOperationNameKey.String(sqlOperationName(rawQuery))),
-	}...)
+	ctx, spanQueryx := s.tracer.Start(ctx, rawQuery, s.commonAttribute(rawQuery, args)...)
 	defer spanQueryx.End()
 
-	res := s.db.QueryRowxContext(ctx, rawQuery, args...)
+	res := s.queryExecutor.QueryRowxContext(ctx, rawQuery, args...)
 
 	switch scanType {
 	case QueryRowScanTypeStruct:
@@ -128,4 +240,90 @@ func (s *rdbms) QuerySqPagination(ctx context.Context, countQuery, query squirre
 	}
 
 	return CreatePaginationOutput(paginationInput, totalData), nil
+}
+
+func (s *rdbms) injectTx(tx *sqlx.Tx) *rdbms {
+	newRdbms := *s
+	newRdbms.queryExecutor = tx
+	return s
+}
+
+func (s *rdbms) DoTx(ctx context.Context, opt *sql.TxOptions, fn func(tx Rdbms) (err error)) (err error) {
+	opts := []trace.SpanStartOption{
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(DBTxIsolationLevel.String(opt.Isolation.String())),
+		trace.WithAttributes(DBTxReadOnly.Bool(opt.ReadOnly)),
+	}
+
+	spanName := "do transaction"
+
+	_, span := s.tracer.Start(ctx, spanName, opts...)
+	defer span.End()
+
+	tx, err := s.db.BeginTxx(ctx, opt)
+	if err != nil {
+		recordError(span, err)
+		return errTracer(err)
+	}
+
+	defer func() {
+		if p := recover(); p != nil {
+			err = tx.Rollback()
+			recordError(span, err)
+			panic(p)
+		} else if err != nil {
+			if errRollback := tx.Rollback(); errRollback != nil {
+				recordError(span, errRollback)
+				err = errRollback
+			}
+		} else {
+			if errCommit := tx.Commit(); errCommit != nil {
+				recordError(span, errCommit)
+				err = errCommit
+			}
+		}
+	}()
+
+	err = fn(s.injectTx(tx))
+	return
+}
+
+func (s *rdbms) DoTxContext(ctx context.Context, opt *sql.TxOptions, fn func(ctx context.Context, tx Rdbms) (err error)) (err error) {
+	opts := []trace.SpanStartOption{
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(DBTxIsolationLevel.String(opt.Isolation.String())),
+		trace.WithAttributes(DBTxReadOnly.Bool(opt.ReadOnly)),
+	}
+
+	spanName := "do transaction"
+
+	ctx, span := s.tracer.Start(ctx, spanName, opts...)
+	defer span.End()
+
+	tx, err := s.db.BeginTxx(ctx, opt)
+	if err != nil {
+		recordError(span, err)
+		return errTracer(err)
+	}
+
+	defer func() {
+		if p := recover(); p != nil {
+			err = tx.Rollback()
+			recordError(span, err)
+			panic(p)
+		} else if err != nil {
+			if errRollback := tx.Rollback(); errRollback != nil {
+				recordError(span, errRollback)
+				err = errRollback
+			}
+		} else {
+			if errCommit := tx.Commit(); errCommit != nil {
+				recordError(span, errCommit)
+				err = errCommit
+			}
+		}
+	}()
+
+	err = fn(ctx, s.injectTx(tx))
+	return
 }
