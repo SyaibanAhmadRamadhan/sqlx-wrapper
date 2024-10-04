@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"github.com/Masterminds/squirrel"
 	"github.com/jmoiron/sqlx"
 	"go.opentelemetry.io/otel"
@@ -245,7 +246,7 @@ func (s *rdbms) QuerySqPagination(ctx context.Context, countQuery, query squirre
 func (s *rdbms) injectTx(tx *sqlx.Tx) *rdbms {
 	newRdbms := *s
 	newRdbms.queryExecutor = tx
-	return s
+	return &newRdbms
 }
 
 func (s *rdbms) DoTx(ctx context.Context, opt *sql.TxOptions, fn func(tx Rdbms) (err error)) (err error) {
@@ -268,23 +269,41 @@ func (s *rdbms) DoTx(ctx context.Context, opt *sql.TxOptions, fn func(tx Rdbms) 
 
 	defer func() {
 		if p := recover(); p != nil {
-			err = tx.Rollback()
-			recordError(span, err)
+			span.SetAttributes(attribute.String("db.tx.operation", "rollback"))
+			errRollback := tx.Rollback()
+			if errRollback != nil {
+				recordError(span, errRollback)
+				span.SetAttributes(attribute.String("db.tx.status", "rollback failed"))
+			} else {
+				span.SetAttributes(attribute.String("db.tx.status", "rollback successfully"))
+			}
+			recordError(span, fmt.Errorf("panic occurred: %v", p))
 			panic(p)
 		} else if err != nil {
+			span.SetAttributes(attribute.String("db.tx.operation", "rollback"))
 			if errRollback := tx.Rollback(); errRollback != nil {
 				recordError(span, errRollback)
-				err = errRollback
+				err = errors.Join(err, errRollback)
+				span.SetAttributes(attribute.String("db.tx.status", "rollback failed"))
+			} else {
+				span.SetAttributes(attribute.String("db.tx.status", "rollback successfully"))
 			}
 		} else {
+			span.SetAttributes(attribute.String("db.tx.operation", "commit"))
 			if errCommit := tx.Commit(); errCommit != nil {
 				recordError(span, errCommit)
 				err = errCommit
+				span.SetAttributes(attribute.String("db.tx.status", "commit failed"))
+			} else {
+				span.SetAttributes(attribute.String("db.tx.status", "commit successfully"))
 			}
 		}
 	}()
 
 	err = fn(s.injectTx(tx))
+	if err != nil {
+		recordError(span, err)
+	}
 	return
 }
 
@@ -308,18 +327,33 @@ func (s *rdbms) DoTxContext(ctx context.Context, opt *sql.TxOptions, fn func(ctx
 
 	defer func() {
 		if p := recover(); p != nil {
-			err = tx.Rollback()
-			recordError(span, err)
+			span.SetAttributes(attribute.String("db.tx.operation", "rollback"))
+			errRollback := tx.Rollback()
+			if errRollback != nil {
+				recordError(span, errRollback)
+				span.SetAttributes(attribute.String("db.tx.status", "rollback failed"))
+			} else {
+				span.SetAttributes(attribute.String("db.tx.status", "rollback successfully"))
+			}
+			recordError(span, fmt.Errorf("panic occurred: %v", p))
 			panic(p)
 		} else if err != nil {
+			span.SetAttributes(attribute.String("db.tx.operation", "rollback"))
 			if errRollback := tx.Rollback(); errRollback != nil {
 				recordError(span, errRollback)
-				err = errRollback
+				err = errors.Join(err, errRollback)
+				span.SetAttributes(attribute.String("db.tx.status", "rollback failed"))
+			} else {
+				span.SetAttributes(attribute.String("db.tx.status", "rollback successfully"))
 			}
 		} else {
+			span.SetAttributes(attribute.String("db.tx.operation", "commit"))
 			if errCommit := tx.Commit(); errCommit != nil {
 				recordError(span, errCommit)
 				err = errCommit
+				span.SetAttributes(attribute.String("db.tx.status", "commit failed"))
+			} else {
+				span.SetAttributes(attribute.String("db.tx.status", "commit successfully"))
 			}
 		}
 	}()
