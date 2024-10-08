@@ -148,7 +148,7 @@ func (s *rdbms) commonAttribute(rawQuery string, args ...interface{}) []trace.Sp
 		attrs = append(attrs, trace.WithAttributes(s.attrs...))
 	}
 
-	return nil
+	return attrs
 }
 
 func (s *rdbms) QuerySq(ctx context.Context, query squirrel.Sqlizer, callback callbackRows) error {
