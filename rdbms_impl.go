@@ -157,7 +157,7 @@ func (s *rdbms) QuerySq(ctx context.Context, query squirrel.Sqlizer, callback ca
 		return errTracer(err)
 	}
 
-	ctx, spanQueryx := s.tracer.Start(ctx, rawQuery, s.commonAttribute(rawQuery, args)...)
+	ctx, spanQueryx := s.tracer.Start(ctx, s.sqlOperationName(rawQuery), s.commonAttribute(rawQuery, args)...)
 	defer spanQueryx.End()
 
 	res, err := s.queryExecutor.QueryxContext(ctx, rawQuery, args...)
@@ -183,7 +183,7 @@ func (s *rdbms) ExecSq(ctx context.Context, query squirrel.Sqlizer) (sql.Result,
 		return nil, errTracer(err)
 	}
 
-	ctx, spanExec := s.tracer.Start(ctx, rawQuery, s.commonAttribute(rawQuery, args)...)
+	ctx, spanExec := s.tracer.Start(ctx, s.sqlOperationName(rawQuery), s.commonAttribute(rawQuery, args)...)
 	defer spanExec.End()
 
 	res, err := s.queryExecutor.ExecContext(ctx, rawQuery, args...)
@@ -201,7 +201,7 @@ func (s *rdbms) QueryRowSq(ctx context.Context, query squirrel.Sqlizer, scanType
 		return errTracer(err)
 	}
 
-	ctx, spanQueryx := s.tracer.Start(ctx, rawQuery, s.commonAttribute(rawQuery, args)...)
+	ctx, spanQueryx := s.tracer.Start(ctx, s.sqlOperationName(rawQuery), s.commonAttribute(rawQuery, args)...)
 	defer spanQueryx.End()
 
 	res := s.queryExecutor.QueryRowxContext(ctx, rawQuery, args...)
