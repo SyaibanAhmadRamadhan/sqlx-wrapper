@@ -66,6 +66,10 @@ func findOwnImportedVersion() string {
 	return "unknown"
 }
 
+func defaultSpanNameFN(s string) string {
+	return fmt.Sprintf("%s...", s[0:15])
+}
+
 func NewRdbms(db *sqlx.DB, opt ...optionFunc) *rdbms {
 	tp := otel.GetTracerProvider()
 	r := &rdbms{
@@ -74,7 +78,7 @@ func NewRdbms(db *sqlx.DB, opt ...optionFunc) *rdbms {
 		tracer:         tp.Tracer(TracerName, trace.WithInstrumentationVersion(findOwnImportedVersion())),
 		tracerProvider: tp,
 		attrs:          nil,
-		spanNameFunc:   nil,
+		spanNameFunc:   defaultSpanNameFN,
 		includeParams:  true,
 		rdbmsConfig:    nil,
 	}
@@ -107,9 +111,6 @@ type rdbmsConfig struct {
 // sqlOperationName attempts to get the first 'word' from a given SQL query, which usually
 // is the operation name (e.g. 'SELECT').
 func (s *rdbms) sqlOperationName(stmt string) string {
-	// If a custom function is provided, use that. Otherwise, fall back to the
-	// default implementation. This allows users to override the default
-	// behavior without having to reimplement it.
 	if s.spanNameFunc != nil {
 		return s.spanNameFunc(stmt)
 	}
@@ -157,7 +158,7 @@ func (s *rdbms) QuerySq(ctx context.Context, query squirrel.Sqlizer, callback ca
 		return errTracer(err)
 	}
 
-	ctx, spanQueryx := s.tracer.Start(ctx, s.sqlOperationName(rawQuery), s.commonAttribute(rawQuery, args)...)
+	ctx, spanQueryx := s.tracer.Start(ctx, s.spanNameFunc(rawQuery), s.commonAttribute(rawQuery, args)...)
 	defer spanQueryx.End()
 
 	res, err := s.queryExecutor.QueryxContext(ctx, rawQuery, args...)
@@ -183,7 +184,7 @@ func (s *rdbms) ExecSq(ctx context.Context, query squirrel.Sqlizer) (sql.Result,
 		return nil, errTracer(err)
 	}
 
-	ctx, spanExec := s.tracer.Start(ctx, s.sqlOperationName(rawQuery), s.commonAttribute(rawQuery, args)...)
+	ctx, spanExec := s.tracer.Start(ctx, s.spanNameFunc(rawQuery), s.commonAttribute(rawQuery, args)...)
 	defer spanExec.End()
 
 	res, err := s.queryExecutor.ExecContext(ctx, rawQuery, args...)
@@ -201,7 +202,7 @@ func (s *rdbms) QueryRowSq(ctx context.Context, query squirrel.Sqlizer, scanType
 		return errTracer(err)
 	}
 
-	ctx, spanQueryx := s.tracer.Start(ctx, s.sqlOperationName(rawQuery), s.commonAttribute(rawQuery, args)...)
+	ctx, spanQueryx := s.tracer.Start(ctx, s.spanNameFunc(rawQuery), s.commonAttribute(rawQuery, args)...)
 	defer spanQueryx.End()
 
 	res := s.queryExecutor.QueryRowxContext(ctx, rawQuery, args...)
