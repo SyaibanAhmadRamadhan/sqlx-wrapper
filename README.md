@@ -14,7 +14,7 @@ v1.yearMonthDate.HourMinute
 ## Initial rdbms 
 install sqlx wrapper
 ```shell
-go get github.com/SyaibanAhmadRamadhan/sqlx-wrapper@v1.241102.0028
+go get github.com/SyaibanAhmadRamadhan/sqlx-wrapper@v1.241102.0050
 ```
 
 ```Go
