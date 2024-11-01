@@ -67,7 +67,10 @@ func findOwnImportedVersion() string {
 }
 
 func defaultSpanNameFN(s string) string {
-	return fmt.Sprintf("%s...", s[0:100])
+	if len(s) > 100 {
+		return fmt.Sprintf("%s...", s[:100])
+	}
+	return s
 }
 
 func NewRdbms(db *sqlx.DB, opt ...optionFunc) *rdbms {

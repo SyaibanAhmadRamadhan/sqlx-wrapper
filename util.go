@@ -38,10 +38,18 @@ func recordError(span trace.Span, err error) {
 }
 
 func makeParamAttr(args []any) attribute.KeyValue {
-	ss := make([]string, len(args))
-	for i := range args {
-		t := reflect.TypeOf(args[i])
-		ss[i] = fmt.Sprintf("%s: %v", t, args[i])
+	ss := make([]string, 0, len(args))
+	for _, arg := range args {
+		t := reflect.TypeOf(arg)
+
+		if t.Kind() == reflect.Ptr {
+			val := reflect.ValueOf(arg).Elem()
+			if val.IsValid() {
+				ss = append(ss, fmt.Sprintf("%v", val.Interface()))
+			}
+		} else {
+			ss = append(ss, fmt.Sprintf("%v", arg))
+		}
 	}
 
 	return DBQueryParameter.StringSlice(ss)
